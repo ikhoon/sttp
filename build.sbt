@@ -216,6 +216,8 @@ lazy val rootJVM = project
     asyncHttpClientMonixBackend,
     asyncHttpClientCatsBackend,
     asyncHttpClientFs2Backend,
+    armeriaBackend,
+    armeriaFutureBackend,
     okhttpBackend,
     okhttpMonixBackend,
     http4sBackend,
@@ -445,6 +447,29 @@ lazy val asyncHttpClientFs2Backend: Project =
     )
     .dependsOn(catsJVM % compileAndTest)
     .dependsOn(fs2JVM % compileAndTest)
+
+//-- armeria http client
+lazy val armeriaBackend: Project =
+  (project in file("armeria-backend"))
+    .settings(commonJvmSettings: _*)
+    .settings(
+      name := "armeria-backend",
+      libraryDependencies ++= Seq(
+        "com.linecorp.armeria" % "armeria" % "0.97.0"
+      )
+    )
+    .dependsOn(coreJVM % compileAndTest)
+
+def armeriaBackendProject(proj: String): Project = {
+  Project(s"armeriaBackend${proj.capitalize}", file(s"armeria-backend/$proj"))
+    .settings(commonJvmSettings: _*)
+    .settings(name := s"armeria-backend-$proj")
+    .dependsOn(armeriaBackend % compileAndTest)
+}
+
+lazy val armeriaFutureBackend: Project =
+  armeriaBackendProject("future")
+    .dependsOn(coreJVM % compileAndTest)
 
 //-- okhttp
 lazy val okhttpBackend: Project = (project in file("okhttp-backend"))
