@@ -455,7 +455,8 @@ lazy val armeriaBackend: Project =
     .settings(
       name := "armeria-backend",
       libraryDependencies ++= Seq(
-        "com.linecorp.armeria" % "armeria" % "0.97.0"
+        "com.linecorp.armeria" % "armeria" % "0.97.0",
+        "org.scala-lang.modules" %% "scala-java8-compat" % "0.9.0"
       )
     )
     .dependsOn(coreJVM % compileAndTest)
