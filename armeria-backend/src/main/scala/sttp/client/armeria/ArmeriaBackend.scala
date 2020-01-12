@@ -1,6 +1,7 @@
 package sttp.client.armeria
 
 import java.io.InputStream
+import java.net.http.HttpRequest.BodyPublisher
 import java.nio.file.{Files, Path}
 import java.util.Map
 import java.util.concurrent.ThreadLocalRandom
@@ -12,7 +13,7 @@ import io.netty.util.AsciiString
 import org.reactivestreams.{Publisher, Subscriber, Subscription}
 import sttp.client.internal.{CrLf, Iso88591}
 import sttp.client.monad.MonadAsyncError
-import sttp.client.{BasicRequestBody, ByteArrayBody, ByteBufferBody, FileBody, InputStreamBody, MultipartBody, NoBody, NothingT, Request, Response, ResponseAs, ResponseMetadata, StreamBody, StringBody, SttpBackend}
+import sttp.client.{BasicRequestBody, ByteArrayBody, ByteBufferBody, FileBody, IgnoreResponse, InputStreamBody, MappedResponseAs, MultipartBody, NoBody, NothingT, Request, Response, ResponseAs, ResponseAsByteArray, ResponseAsFile, ResponseAsFromMetadata, ResponseAsStream, ResponseMetadata, StreamBody, StringBody, SttpBackend}
 import sttp.model.{Header, HeaderNames, Method, StatusCode}
 import sttp.client.monad.syntax._
 
@@ -33,6 +34,8 @@ abstract class ArmeriaBackend[F[_], S](
     value.flatMap(req => {
       webClient.execute(req)
       request.response
+      // TODO
+      ???
     })
   }
 
@@ -105,6 +108,7 @@ abstract class ArmeriaBackend[F[_], S](
                   .flatMap(_.getBytes(Iso88591)) ++ httpData.array() ++ CrLf.getBytes(Iso88591)
                 writer.write(HttpData.wrap(body))
               case Right(publisher) =>
+                // TODO(ikhoon): Ensure data order, SequencialPublisher
                 publisher.subscribe(new StreamingSubscriber(writer))
             }
         }
@@ -120,6 +124,57 @@ abstract class ArmeriaBackend[F[_], S](
         .flatMap(name => res.headers().getAll(name).asScala.map(Header.notValidated(name.toString, _)))
         .toList
       val responseMetadata = ResponseMetadata(headers, StatusCode.notValidated(res.status().code()), res.status().codeAsText())
+    }
+  }
+
+  abstract class BodyPublisher extends Publisher[HttpData] {
+    var httpHeaders: HttpHeaders = _
+  }
+
+  def toBodyPublisher(response: HttpResponse): F[BodyPublisher] = {
+    monad.async { cb =>
+      new BodyPublisher { self =>
+        override def subscribe(s: Subscriber[_ >: HttpData]): Unit = {
+          response.subscribe(new Subscriber[HttpObject] {
+            @volatile var subscription: Subscription = _
+            override def onSubscribe(v: Subscription): Unit =
+              s.onSubscribe(v)
+
+            override def onNext(t: HttpObject): Unit = t match {
+              case header: HttpHeaders =>
+                self.httpHeaders = header
+                subscription.request(1)
+              case data: HttpData =>
+                s.onNext(data)
+                cb(Right(self))
+            }
+
+            override def onError(t: Throwable): Unit = ???
+
+            override def onComplete(): Unit =
+              s.onComplete()
+          })
+        }
+      }
+    }
+  }
+
+
+  private def fromArmeriaResponse0[T](responseAs: ResponseAs[T, S], response: AggregatedHttpResponse, meta: ResponseMetadata): F[T] = {
+    responseAs match {
+      case MappedResponseAs(raw, g) =>
+        fromArmeriaResponse0(raw, response, meta).map(g(_, meta))
+      case ResponseAsFromMetadata(f) =>
+        fromArmeriaResponse0(f(meta), response, meta)
+      case IgnoreResponse =>
+        monad.unit(())
+      case ResponseAsByteArray =>
+        monad.unit(response.content().array())
+      case ras @ ResponseAsStream() =>
+
+
+      case ResponseAsFile(file) =>
+
     }
   }
 
